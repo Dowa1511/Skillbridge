@@ -14,6 +14,7 @@ const ReviewSchema = new mongoose.Schema(
     },
     comment: {
       type: String,
+      default: "",
     },
   },
   { timestamps: true }
@@ -30,9 +31,13 @@ const WorkerSchema = new mongoose.Schema(
     phone: {
       type: String,
       required: true,
+      unique: true,
     },
 
-    profession: String,
+    profession: {
+      type: String,
+      default: "Other",
+    },
 
     experience: {
       type: Number,
@@ -51,8 +56,8 @@ const WorkerSchema = new mongoose.Schema(
         default: "Point",
       },
       coordinates: {
-        type: [Number], // [lng, lat]
-        default: [73.8567, 18.5204], // Pune default
+        type: [Number],
+        default: [73.8567, 18.5204], // Pune
       },
       city: String,
       area: String,
@@ -62,25 +67,33 @@ const WorkerSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+
     rating: {
       type: Number,
       default: 0,
     },
-    totalReviews: {
-      type: Number,
-      default: 0,
-    },
-    // ⭐⭐⭐⭐⭐ RATINGS
-    reviews: [ReviewSchema],
 
     averageRating: {
       type: Number,
       default: 0,
     },
 
+    totalReviews: {
+      type: Number,
+      default: 0,
+    },
+
+    reviews: [ReviewSchema],
+
     workingHours: {
-      start: { type: String, default: "09:00" },
-      end: { type: String, default: "17:00" },
+      start: {
+        type: String,
+        default: "09:00",
+      },
+      end: {
+        type: String,
+        default: "17:00",
+      },
     },
 
     isVerified: {
@@ -93,10 +106,32 @@ const WorkerSchema = new mongoose.Schema(
       default: false,
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  }
 );
 
-// Create a 2dsphere index for location to support geospatial queries
-WorkerSchema.index({ location: "2dsphere" });
+// Ensure valid GeoJSON
+WorkerSchema.pre("save", async function () {
+  if (
+    !this.location ||
+    !Array.isArray(this.location.coordinates) ||
+    this.location.coordinates.length !== 2
+  ) {
+    this.location = {
+      type: "Point",
+      coordinates: [73.8567, 18.5204],
+    };
+  }
+});
+
+// ONLY ONE GEO INDEX
+WorkerSchema.index({
+  location: "2dsphere",
+});
+
+WorkerSchema.index({
+  profession: "text",
+});
 
 module.exports = mongoose.model("Worker", WorkerSchema);

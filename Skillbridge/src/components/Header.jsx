@@ -109,6 +109,11 @@ function Header() {
 
           {/* Desktop User Menu */}
           <div className="hidden xl:flex items-center gap-5">
+            {user && (
+              <Link to={user.role === 'worker' ? '/worker/profile' : '/customer/profile'} className="px-4 py-2 text-sm font-semibold text-slate-700 bg-slate-100 rounded-full hover:bg-primary-50 hover:text-primary-700 transition-colors">
+                {user.role === 'worker' ? 'Edit Profile' : 'Complete Profile'}
+              </Link>
+            )}
             {user ? (
               <>
                 <div className="relative">
@@ -173,6 +178,9 @@ function Header() {
                           <p className="text-xs font-semibold text-primary-600 uppercase tracking-wide mt-1">{user.role}</p>
                         </div>
                         <div className="py-2">
+                          <Link to={user.role === 'worker' ? '/worker/profile' : '/customer/profile'} className="flex items-center px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-primary-50 hover:text-primary-700 transition-colors" onClick={() => setUserMenuOpen(false)}>
+                            <User size={18} className="mr-3" /> {user.role === 'worker' ? 'Edit Profile' : 'Complete Profile'}
+                          </Link>
                           <Link to={user.role === 'worker' ? '/worker/dashboard' : '/customer/dashboard'} className="flex items-center px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-primary-50 hover:text-primary-700 transition-colors" onClick={() => setUserMenuOpen(false)}>
                             <User size={18} className="mr-3" /> Dashboard
                           </Link>
@@ -181,7 +189,7 @@ function Header() {
                           </Link>
                         </div>
                         <div className="border-t border-gray-100/50 py-2">
-                          <button onClick={handleLogout} className="flex items-center w-full px-5 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors">
+                          <button onClick={handleLogout} className="flex items-center w-full px-5 py-2.5 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors rounded-md">
                             <LogOut size={18} className="mr-3" /> Logout
                           </button>
                         </div>
@@ -225,7 +233,26 @@ function Header() {
                   <ChevronRight size={18} className="text-slate-400" />
                 </NavLink>
               ))}
-              {!user && (
+              {user ? (
+                <div className="pt-4 mt-2 border-t border-gray-100">
+                  <div className="px-4 py-3 bg-primary-50 rounded-lg mb-3">
+                    <p className="font-bold text-slate-800">{user.name}</p>
+                    <p className="text-xs text-primary-600 uppercase font-semibold mt-1">{user.role}</p>
+                  </div>
+                  <Link to={user.role === 'worker' ? '/worker/profile' : '/customer/profile'} onClick={() => setIsOpen(false)} className="flex items-center px-4 py-3 text-slate-700 hover:bg-primary-50 rounded-lg">
+                    <User size={18} className="mr-3" /> {user.role === 'worker' ? 'Edit Profile' : 'Complete Profile'}
+                  </Link>
+                  <Link to={user.role === 'worker' ? '/worker/dashboard' : '/customer/dashboard'} onClick={() => setIsOpen(false)} className="flex items-center px-4 py-3 text-slate-700 hover:bg-primary-50 rounded-lg">
+                    <User size={18} className="mr-3" /> Dashboard
+                  </Link>
+                  <Link to="/settings" onClick={() => setIsOpen(false)} className="flex items-center px-4 py-3 text-slate-700 hover:bg-primary-50 rounded-lg">
+                    <Settings size={18} className="mr-3" /> Settings
+                  </Link>
+                  <button onClick={handleLogout} className="flex items-center w-full px-4 py-3 text-red-600 hover:bg-red-50 rounded-lg font-bold mt-2">
+                    <LogOut size={18} className="mr-3" /> Logout
+                  </button>
+                </div>
+              ) : (
                 <div className="pt-4 mt-2 border-t border-gray-100 flex flex-col gap-3">
                   <Link to="/login" onClick={() => setIsOpen(false)} className="w-full py-3 text-center rounded-xl font-bold border border-slate-200 text-slate-700">Log in</Link>
                   <Link to="/signup" onClick={() => setIsOpen(false)} className="w-full py-3 text-center rounded-xl font-bold bg-slate-900 text-white">Sign up free</Link>

@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Phone, Lock, Eye, EyeOff, ArrowRight, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "../components/ToastContext";
+import { loginUser } from "../services/authService";
 
 function Login() {
   const navigate = useNavigate();
@@ -27,21 +28,12 @@ function Login() {
     setLoading(true);
 
     try {
-      const res = await fetch("http://localhost:5000/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phone: formData.phone,
-          password: formData.password,
-        }),
+      const response = await loginUser({
+        phone: formData.phone,
+        password: formData.password,
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.message || "Login failed");
-      }
-
+      const data = response.data;
       localStorage.setItem("token", data.token);
       const userObj = data.data?.user || data.user;
       localStorage.setItem("user", JSON.stringify(userObj));
@@ -53,9 +45,10 @@ function Login() {
       } else {
         navigate("/customer/dashboard");
       }
-
     } catch (err) {
-      addToast(err.message || "Login failed", "error");
+      const message = err.response?.data?.message || err.message || "Login failed";
+      setError(message);
+      addToast(message, "error");
     } finally {
       setLoading(false);
     }

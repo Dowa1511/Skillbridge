@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { User, Phone, Lock, Eye, EyeOff, Sparkles, UserPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '../components/ToastContext';
+import { signupUser } from '../services/authService';
 
 function Signup() {
     const navigate = useNavigate();
@@ -19,6 +20,7 @@ function Signup() {
         password: '',
         confirmPassword: '',
         role: '',
+        profession: 'Other',
     });
 
     const handleChange = (e) => {
@@ -39,26 +41,23 @@ function Signup() {
             return;
         }
 
+        if (formData.role === 'worker' && !formData.profession) {
+            setError('Please select your profession to continue.');
+            return;
+        }
+
         try {
             setLoading(true);
 
-            const res = await fetch('http://localhost:5000/api/auth/signup', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: formData.fullName,
-                    phone: formData.phone,
-                    password: formData.password,
-                    role: formData.role,
-                }),
+            const response = await signupUser({
+                name: formData.fullName,
+                phone: formData.phone,
+                password: formData.password,
+                role: formData.role,
+                profession: formData.profession,
             });
 
-            const data = await res.json();
-
-            if (!res.ok) {
-                throw new Error(data.message || 'Signup failed');
-            }
-
+            const data = response.data;
             const userObj = data.data?.user || data.user;
             localStorage.setItem('token', data.token);
             localStorage.setItem('user', JSON.stringify(userObj));
@@ -72,7 +71,8 @@ function Signup() {
             }
 
         } catch (err) {
-            setError(err.message || 'Signup failed');
+            const message = err.response?.data?.message || err.message || 'Signup failed';
+            setError(message);
         } finally {
             setLoading(false);
         }
@@ -269,6 +269,31 @@ function Signup() {
                                     </div>
                                 </div>
                             </div>
+
+                            {formData.role === 'worker' && (
+                                <div className="mb-4">
+                                    <label className="block text-sm font-semibold text-slate-700 mb-1 ml-1">
+                                        Profession
+                                    </label>
+                                    <select
+                                        name="profession"
+                                        value={formData.profession}
+                                        onChange={handleChange}
+                                        required
+                                        className="w-full p-4 border-2 border-slate-200 rounded-2xl focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10 transition-all"
+                                    >
+                                        <option value="">Select your profession</option>
+                                        <option value="Plumber">Plumber</option>
+                                        <option value="Electrician">Electrician</option>
+                                        <option value="Carpenter">Carpenter</option>
+                                        <option value="Painter">Painter</option>
+                                        <option value="Mechanic">Mechanic</option>
+                                        <option value="AC Technician">AC Technician</option>
+                                        <option value="Cleaner">Cleaner</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                            )}
 
                             <button
                                 type="submit"

@@ -1,5 +1,8 @@
 const Review = require("../models/Review");
 const Booking = require("../models/Booking");
+const Worker = require("../models/Worker");
+const User = require("../models/User");
+const sendWhatsApp = require("../utils/sendWhatsApp");
 
 exports.createReview = async (req, res) => {
   try {
@@ -10,13 +13,15 @@ exports.createReview = async (req, res) => {
       return res.status(400).json({ message: "Missing required fields (bookingId, rating)" });
     }
 
-    const booking = await Booking.findById(payloadBookingId);
+    const booking = await Booking.findById(payloadBookingId)
+      .populate("worker")
+      .populate("customer");
 
     if (!booking) {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    if (booking.customer.toString() !== req.user._id.toString()) {
+    if (booking.customer._id.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: "Not authorized to review this booking" });
     }
 
@@ -31,11 +36,48 @@ exports.createReview = async (req, res) => {
 
     const review = await Review.create({
       booking: payloadBookingId,
-      worker: booking.worker,
+      worker: booking.worker._id,
       customer: req.user._id,
       rating,
       comment,
     });
+
+    // ===============================
+    // WHATSAPP NOTIFICATIONS
+    // ===============================
+    const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+    const stars = "⭐".repeat(Number(rating));
+
+    // Thank the customer
+    try {
+      await sendWhatsApp(
+        booking.customer.phone,
+        `🙏 *Thank you for your review!*\n\n` +
+        `You rated your ${booking.worker.profession}: ${stars} (${rating}/5)\n\n` +
+        `${comment ? `"${comment}"\n\n` : ""}` +
+        `Your feedback helps workers improve and helps other customers make better decisions. 💙\n\n` +
+        `Book more services anytime:\n${FRONTEND_URL}/customer/dashboard`
+      );
+    } catch (e) {
+      console.warn("Review thank-you WhatsApp skipped:", e.message);
+    }
+
+    // Notify the worker
+    try {
+      const workerUser = await User.findById(booking.worker.user);
+      if (workerUser?.phone) {
+        await sendWhatsApp(
+          workerUser.phone,
+          `🌟 *New Review Received!*\n\n` +
+          `${stars} *${rating}/5 stars*\n` +
+          `${comment ? `"${comment}"\n` : ""}` +
+          `From: ${booking.customer.name}\n\n` +
+          `Keep up the great work! View your profile:\n${FRONTEND_URL}/workers/${booking.worker._id}`
+        );
+      }
+    } catch (e) {
+      console.warn("Review worker notification WhatsApp skipped:", e.message);
+    }
 
     res.status(201).json({
       success: true,

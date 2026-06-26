@@ -10,6 +10,7 @@ const AppError = require("./utils/AppError");
 const globalErrorHandler = require("./middleware/errorMiddleware");
 
 const app = express();
+app.set("trust proxy", 1);
 
 // ================= GLOBAL MIDDLEWARE =================
 // Set security HTTP headers

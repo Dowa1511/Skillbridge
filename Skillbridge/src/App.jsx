@@ -16,10 +16,12 @@ import ForgotPassword from "./pages/ForgotPassword";
 
 import WorkerDashboard from "./pages/WorkerDashboard";
 import WorkerProfile from "./pages/WorkerProfile";
+import CustomerProfile from "./pages/CustomerProfile";
 import CustomerDashboard from "./pages/CustomerDashboard";
 import WorkerPublicProfile from "./pages/WorkerPublicProfile";
 import Settings from "./pages/Settings";
 import Messages from "./pages/Messages";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -50,11 +52,40 @@ function App() {
               <Route path="/forgot-password" element={<ForgotPassword />} />
 
               {/* Protected Worker Routes */}
-              <Route path="/worker/dashboard" element={<WorkerDashboard />} />
-              <Route path="/worker/profile" element={<WorkerProfile />} />
+              <Route
+                path="/worker/dashboard"
+                element={
+                  <ProtectedRoute requiredRole="worker">
+                    <WorkerDashboard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/worker/profile"
+                element={
+                  <ProtectedRoute requiredRole="worker">
+                    <WorkerProfile />
+                  </ProtectedRoute>
+                }
+              />
 
               {/* Protected Customer Routes */}
-              <Route path="/customer/dashboard" element={<CustomerDashboard />} />
+              <Route
+                path="/customer/profile"
+                element={
+                  <ProtectedRoute requiredRole="customer">
+                    <CustomerProfile />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/customer/dashboard"
+                element={
+                  <ProtectedRoute requiredRole="customer">
+                    <CustomerDashboard />
+                  </ProtectedRoute>
+                }
+              />
 
               {/* Public Worker Profile */}
               <Route
@@ -63,8 +94,22 @@ function App() {
               />
 
               {/* Protected User Routes */}
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/messages" element={<Messages />} />
+              <Route
+                path="/settings"
+                element={
+                  <ProtectedRoute>
+                    <Settings />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/messages"
+                element={
+                  <ProtectedRoute>
+                    <Messages />
+                  </ProtectedRoute>
+                }
+              />
             </Routes>
           </div>
 

@@ -9,29 +9,18 @@ const Booking = require("../models/Booking");
 exports.getPublicWorkerProfile = async (req, res) => {
   try {
     const worker = await Worker.findById(req.params.workerId)
-      .select("profession experience hourlyRate location availability")
+      .select("profession experience hourlyRate location availability averageRating totalReviews")
       .populate("user", "name");
 
     if (!worker) {
       return res.status(404).json({ message: "Worker not found" });
     }
 
-    // ⭐ Fetch ratings
-    const reviews = await Review.find({ worker: worker._id });
-
-    const avgRating =
-      reviews.length > 0
-        ? (
-            reviews.reduce((sum, r) => sum + r.rating, 0) /
-            reviews.length
-          ).toFixed(1)
-        : null;
-
     res.status(200).json({
       worker,
       rating: {
-        avgRating,
-        totalReviews: reviews.length,
+        avgRating: worker.averageRating > 0 ? worker.averageRating.toFixed(1) : null,
+        totalReviews: worker.totalReviews || 0,
       },
     });
   } catch (err) {
@@ -55,6 +44,10 @@ exports.getMyWorkerProfile = async (req, res) => {
         hourlyRate: 0,
         experience: 0,
         isProfileComplete: false,
+        location: {
+          type: "Point",
+          coordinates: [73.8567, 18.5204],
+        },
       });
 
       req.user.linkedWorkerId = worker._id;
@@ -83,10 +76,26 @@ exports.getMyWorkerProfile = async (req, res) => {
       },
     }));
 
+    const activeBookings = await Booking.countDocuments({ worker: worker._id, status: { $in: ["accepted", "pending"] } });
+    const completedBookings = await Booking.countDocuments({ worker: worker._id, status: "completed" });
+    const canceledBookings = await Booking.countDocuments({ worker: worker._id, status: "cancelled" });
+
+    const totalEarningsResult = await Booking.aggregate([
+      { $match: { worker: worker._id, status: "completed" } },
+      { $group: { _id: null, total: { $sum: "$price" } } }
+    ]);
+    const totalEarnings = totalEarningsResult.length > 0 ? totalEarningsResult[0].total || 0 : 0;
+
     res.status(200).json({
       success: true,
       worker,
       pendingBookings: actionableFields,
+      dashboardStats: {
+        activeBookings,
+        completedBookings,
+        canceledBookings,
+        totalEarnings,
+      }
     });
   } catch (err) {
     console.error("Get worker profile error:", err);
@@ -164,7 +173,13 @@ exports.updateWorkerProfile = async (req, res) => {
 exports.searchWorkers = async (req, res) => {
   try {
     const searchParams = req.method === "GET" ? req.query : req.body;
-    const { profession, city, maxPrice, minRating, page = 1, limit = 10 } = searchParams;
+    const { profession, city, maxPrice, minRating, page = 1, limit = 10, sort } = searchParams;
+
+    const cacheKey = JSON.stringify(searchParams);
+    if (!global.searchCache) global.searchCache = new Map();
+    if (global.searchCache.has(cacheKey)) {
+      return res.status(200).json(global.searchCache.get(cacheKey));
+    }
 
     const pageNum = Number(page);
     const limitNum = Number(limit);
@@ -183,51 +198,34 @@ exports.searchWorkers = async (req, res) => {
     if (city) {
       query["location.city"] = { $regex: new RegExp(city, "i") };
     }
+    if (ratingLimit > 0) {
+      query.averageRating = { $gte: ratingLimit };
+    }
 
-    // 1. Fetch filtered paginated workers
+    let sortOption = { averageRating: -1, totalReviews: -1 }; // Default robust sorting
+    if (sort === "priceAsc") sortOption = { hourlyRate: 1 };
+    else if (sort === "priceDesc") sortOption = { hourlyRate: -1 };
+    else if (sort === "ratingDesc") sortOption = { averageRating: -1, totalReviews: -1 };
+
+    // 1. Fetch filtered paginated workers (no aggregate needed!)
     const workers = await Worker.find(query)
       .skip((pageNum - 1) * limitNum)
       .limit(limitNum)
+      .sort(sortOption)
       .lean();
 
-    const workerIds = workers.map((w) => w._id);
-
-    // 2. Fetch Aggregated Ratings
-    const ratings = await Review.aggregate([
-      { $match: { worker: { $in: workerIds } } },
-      {
-        $group: {
-          _id: "$worker",
-          avgRating: { $avg: "$rating" },
-          totalReviews: { $sum: 1 },
-        },
-      },
-    ]);
-
-    const ratingMap = {};
-    ratings.forEach((r) => {
-      ratingMap[r._id.toString()] = {
-        avgRating: r.avgRating.toFixed(1),
-        totalReviews: r.totalReviews,
-      };
-    });
-
-    // 3. Attach Ratings & Post-Filter by Rating Check
+    // 2. Attach Ratings
     let finalWorkers = workers.map((w) => ({
       ...w,
-      rating: ratingMap[w._id.toString()] || {
-        avgRating: null,
-        totalReviews: 0,
+      rating: {
+        avgRating: w.averageRating > 0 ? w.averageRating.toFixed(1) : null,
+        totalReviews: w.totalReviews || 0,
       },
     }));
 
-    if (ratingLimit > 0) {
-      finalWorkers = finalWorkers.filter(w => Number(w.rating.avgRating) >= ratingLimit);
-    }
-
     const totalDocs = await Worker.countDocuments(query);
 
-    res.status(200).json({
+    const responsePayload = {
       success: true,
       count: finalWorkers.length,
       pagination: {
@@ -237,7 +235,12 @@ exports.searchWorkers = async (req, res) => {
         totalDocuments: totalDocs
       },
       workers: finalWorkers,
-    });
+    };
+
+    global.searchCache.set(cacheKey, responsePayload);
+    setTimeout(() => { if(global.searchCache) global.searchCache.delete(cacheKey); }, 30000); // 30s manual cache
+
+    res.status(200).json(responsePayload);
   } catch (err) {
     console.error("Search workers error:", err);
     res.status(500).json({

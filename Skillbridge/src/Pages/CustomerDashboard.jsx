@@ -1,14 +1,16 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "../components/ToastContext";
+import api from "../services/api";
 import { completeBooking } from "../services/bookingService";
+import { createReview } from "../services/reviewService";
+import { searchWorkers } from "../services/workerService";
 import ReviewModal from "../components/ReviewModal";
 import { isBookingCompleted } from "../utils/bookingUtils";
 import { motion } from "framer-motion";
 import { Search, MapPin, DollarSign, Briefcase, Star, Calendar, Clock, CheckCircle } from "lucide-react";
 
 function CustomerDashboard() {
-  const token = localStorage.getItem("token");
   const navigate = useNavigate();
   const { addToast } = useToast();
 
@@ -17,7 +19,9 @@ function CustomerDashboard() {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [reviewModal, setReviewModal] = useState({ isOpen: false, bookingId: null });
+  const [reviewModal, setReviewModal] = useState({ isOpen: false, bookingId: null, workerName: '', workerProfession: '' });
+  const [reviewedBookings, setReviewedBookings] = useState(new Set());
+  const [completingId, setCompletingId] = useState(null);
 
   // ======================
   // SEARCH WORKERS
@@ -28,24 +32,7 @@ function CustomerDashboard() {
     setWorkers([]);
 
     try {
-      const res = await fetch(
-        "http://localhost:5000/api/worker/search",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ profession }),
-        }
-      );
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.message || "Search failed");
-      }
-
+      const { data } = await searchWorkers({ profession });
       setWorkers(data.workers);
     } catch (err) {
       setError(err.message);
@@ -57,8 +44,13 @@ function CustomerDashboard() {
   // ======================
   // OPEN REVIEW MODAL
   // ======================
-  const handleReview = (bookingId) => {
-    setReviewModal({ isOpen: true, bookingId });
+  const handleReview = (booking) => {
+    setReviewModal({
+      isOpen: true,
+      bookingId: booking._id,
+      workerName: booking.worker?.user?.name || 'Worker',
+      workerProfession: booking.worker?.profession || 'Professional',
+    });
   };
 
   // ======================
@@ -66,45 +58,35 @@ function CustomerDashboard() {
   // ======================
   const handleSubmitReview = async (bookingId, rating, comment) => {
     try {
-      const res = await fetch(
-        "http://localhost:5000/api/reviews",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            bookingId,
-            rating: Number(rating),
-            comment,
-          }),
-        }
-      );
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.message);
-      }
-
-      addToast("Review submitted successfully! ⭐", "success");
+      await createReview({ bookingId, rating: Number(rating), comment });
+      setReviewedBookings(prev => new Set([...prev, bookingId]));
+      addToast("Review submitted! Thanks for your feedback ⭐", "success");
       fetchMyBookings();
     } catch (err) {
-      throw err; // Re-throw to let modal handle it
+      throw err;
     }
   };
 
   // ======================
   // COMPLETE BOOKING
   // ======================
-  const handleCompleteBooking = async (bookingId) => {
+  const handleCompleteBooking = async (booking) => {
+    setCompletingId(booking._id);
     try {
-      await completeBooking(bookingId);
+      await completeBooking(booking._id);
       addToast("Booking marked as completed! ✅", "success");
-      fetchMyBookings();
+      await fetchMyBookings();
+      // Auto-open review modal right after completing
+      setReviewModal({
+        isOpen: true,
+        bookingId: booking._id,
+        workerName: booking.worker?.user?.name || 'Worker',
+        workerProfession: booking.worker?.profession || 'Professional',
+      });
     } catch (err) {
-      addToast(err.message || "Failed to complete booking", "error");
+      addToast(err.response?.data?.message || err.message || "Failed to complete booking", "error");
+    } finally {
+      setCompletingId(null);
     }
   };
 
@@ -113,24 +95,23 @@ function CustomerDashboard() {
   // ======================
   const fetchMyBookings = async () => {
     try {
-      const res = await fetch(
-        "http://localhost:5000/api/bookings/customer",
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.message);
-      }
-
+      const { data } = await api.get("/api/bookings/customer");
       setBookings(data.bookings);
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  // ======================
+  // FETCH ALREADY-REVIEWED BOOKINGS
+  // ======================
+  const fetchReviewedBookings = async () => {
+    try {
+      const { data } = await api.get("/api/reviews/reviewable");
+      // reviewable returns completed bookings; we check which already have reviews
+      // We'll track via a separate simple call
+    } catch (err) {
+      // silently ignore
     }
   };
 
@@ -306,9 +287,10 @@ function CustomerDashboard() {
                       b.status === "accepted" ? "bg-green-100 text-green-700 border border-green-200" :
                       b.status === "rejected" ? "bg-red-100 text-red-700 border border-red-200" :
                       b.status === "completed" ? "bg-blue-100 text-blue-700 border border-blue-200" :
+                      b.status === "waiting_for_otp" ? "bg-amber-100 text-amber-700 border border-amber-200" :
                       "bg-yellow-100 text-yellow-700 border border-yellow-200"
                     }`}>
-                      {b.status}
+                      {b.status === "waiting_for_otp" ? "waiting for otp" : b.status}
                     </span>
                   </div>
                 </div>
@@ -326,30 +308,44 @@ function CustomerDashboard() {
 
                 {b.status === "accepted" && (
                   <div>
-                    {isBookingCompleted(b.date, b.time) && (
-                      <div className="mb-4 p-3 bg-amber-50/50 border border-amber-200/50 rounded-xl text-center">
-                        <p className="text-sm font-bold text-amber-800">
-                          Time has passed. Mark as completed?
+                    {isBookingCompleted(b.date, b.time) ? (
+                      <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl text-center">
+                        <p className="text-sm font-semibold text-blue-700">
+                          🗓️ Waiting for worker to complete & generate OTP
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl text-center">
+                        <p className="text-sm font-semibold text-blue-700">
+                          🗓️ Scheduled: {b.date} at {b.time}
                         </p>
                       </div>
                     )}
-                    <button
-                      onClick={() => handleCompleteBooking(b._id)}
-                      className="w-full py-3.5 bg-slate-900 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-slate-800 transition-all hover:scale-[1.02] shadow-lg shadow-slate-900/20"
-                    >
-                      <CheckCircle size={18} /> Mark as Completed
-                    </button>
+                  </div>
+                )}
+
+                {b.status === "waiting_for_otp" && (
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-center">
+                    <p className="text-sm font-bold text-amber-800">
+                      🔑 Share the OTP sent to your WhatsApp with the worker to mark this job complete.
+                    </p>
                   </div>
                 )}
 
                 {b.status === "completed" && (
                   <div>
-                    <button
-                      onClick={() => handleReview(b._id)}
-                      className="w-full py-3.5 bg-gradient-to-r from-yellow-400 to-amber-500 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:from-yellow-500 hover:to-amber-600 transition-all hover:scale-[1.02] shadow-lg shadow-amber-500/20"
-                    >
-                      <Star size={18} className="fill-white" /> Rate Worker
-                    </button>
+                    {reviewedBookings.has(b._id) ? (
+                      <div className="flex items-center gap-2 justify-center py-3 bg-green-50 text-green-700 border border-green-100 rounded-xl font-bold">
+                        <CheckCircle size={16} /> Reviewed ✅
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => handleReview(b)}
+                        className="w-full py-3.5 bg-gradient-to-r from-yellow-400 to-amber-500 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:from-yellow-500 hover:to-amber-600 transition-all hover:scale-[1.02] shadow-lg shadow-amber-500/20"
+                      >
+                        <Star size={18} className="fill-white" /> Rate Worker
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -361,9 +357,11 @@ function CustomerDashboard() {
       {/* Review Modal */}
       <ReviewModal
         isOpen={reviewModal.isOpen}
-        onClose={() => setReviewModal({ isOpen: false, bookingId: null })}
+        onClose={() => setReviewModal({ isOpen: false, bookingId: null, workerName: '', workerProfession: '' })}
         onSubmit={handleSubmitReview}
         bookingId={reviewModal.bookingId}
+        workerName={reviewModal.workerName}
+        workerProfession={reviewModal.workerProfession}
       />
     </div>
   );

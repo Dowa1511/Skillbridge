@@ -1,70 +1,54 @@
 import { useEffect, useState, useCallback } from "react";
-import { acceptBooking, rejectBooking, completeBooking } from "../services/bookingService";
+import api from "../services/api";
+import { acceptBooking, rejectBooking, generateOTP, verifyOTP } from "../services/bookingService";
+import { getWorkerReviews } from "../services/reviewService";
 import { useToast } from "../components/ToastContext";
 import { isBookingCompleted } from "../utils/bookingUtils";
-import { motion, AnimatePresence } from "framer-motion";
-import { MapPin, DollarSign, Briefcase, Star, Calendar, Clock, CheckCircle, XCircle, Award, User } from "lucide-react";
+import { motion } from "framer-motion";
+import { MapPin, DollarSign, Briefcase, Star, Calendar, Clock, CheckCircle, XCircle, Award, User, Loader2 } from "lucide-react";
 
 function WorkerDashboard() {
-  const token = localStorage.getItem("token");
   const { addToast } = useToast();
 
   const [worker, setWorker] = useState(null);
   const [bookings, setBookings] = useState([]);
   const [reviews, setReviews] = useState([]);
   const [error, setError] = useState("");
+  // Track loading state per booking button
+  const [actionLoading, setActionLoading] = useState({});
+  const [otpValues, setOtpValues] = useState({});
 
   // =========================
   // FETCH WORKER PROFILE
   // =========================
   const fetchWorkerProfile = useCallback(async () => {
     try {
-      const res = await fetch("http://localhost:5000/api/worker/me", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) throw new Error(data.message);
+      const { data } = await api.get("/api/worker/me");
       setWorker(data.worker);
     } catch (err) {
-      setError(err.message);
+      setError(err.response?.data?.message || err.message);
     }
-  }, [token]);
+  }, []);
 
   // =========================
   // FETCH BOOKINGS
   // =========================
   const fetchBookings = useCallback(async () => {
     try {
-      const res = await fetch("http://localhost:5000/api/bookings/worker", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) throw new Error(data.message);
+      const { data } = await api.get("/api/bookings/worker");
       setBookings(data.bookings);
     } catch (err) {
-      setError(err.message);
+      setError(err.response?.data?.message || err.message);
     }
-  }, [token]);
+  }, []);
 
   // =========================
   // FETCH REVIEWS
   // =========================
   const fetchReviews = async (workerId) => {
     try {
-      const res = await fetch(
-        `http://localhost:5000/api/reviews/worker/${workerId}`
-      );
-
-      const data = await res.json();
-      if (res.ok) setReviews(data.reviews);
+      const { data } = await getWorkerReviews(workerId);
+      setReviews(data.reviews);
     } catch (err) {
       console.error(err);
     }
@@ -74,25 +58,73 @@ function WorkerDashboard() {
   // ACCEPT BOOKING
   // =========================
   const handleAcceptBooking = async (bookingId) => {
+    setActionLoading(prev => ({ ...prev, [`accept_${bookingId}`]: true }));
     try {
       await acceptBooking(bookingId);
-      addToast("Booking accepted successfully!", "success");
-      fetchBookings(); // Refresh bookings
+      addToast("Booking accepted! Customer has been notified. ✅", "success");
+      fetchBookings();
     } catch (err) {
-      addToast(err.message || "Failed to accept booking", "error");
+      addToast(err.response?.data?.message || err.message || "Failed to accept booking", "error");
+    } finally {
+      setActionLoading(prev => ({ ...prev, [`accept_${bookingId}`]: false }));
     }
   };
 
   // =========================
-  // COMPLETE BOOKING
+  // REJECT BOOKING
   // =========================
-  const handleCompleteBooking = async (bookingId) => {
+  const handleRejectBooking = async (bookingId) => {
+    setActionLoading(prev => ({ ...prev, [`reject_${bookingId}`]: true }));
     try {
-      await completeBooking(bookingId);
-      addToast("Booking marked as completed! ✅", "success");
-      fetchBookings(); // Refresh bookings
+      await rejectBooking(bookingId);
+      addToast("Booking rejected.", "info");
+      fetchBookings();
     } catch (err) {
-      addToast(err.message || "Failed to complete booking", "error");
+      addToast(err.response?.data?.message || err.message || "Failed to reject booking", "error");
+    } finally {
+      setActionLoading(prev => ({ ...prev, [`reject_${bookingId}`]: false }));
+    }
+  };
+
+  // =========================
+  // GENERATE OTP
+  // =========================
+  const handleGenerateOTP = async (bookingId) => {
+    setActionLoading(prev => ({ ...prev, [`generate_${bookingId}`]: true }));
+    try {
+      await generateOTP(bookingId);
+      addToast("OTP generated and sent to customer! 🔐", "success");
+      fetchBookings();
+    } catch (err) {
+      addToast(err.response?.data?.message || err.message || "Failed to generate OTP", "error");
+    } finally {
+      setActionLoading(prev => ({ ...prev, [`generate_${bookingId}`]: false }));
+    }
+  };
+
+  // =========================
+  // VERIFY OTP
+  // =========================
+  const handleVerifyOTP = async (bookingId) => {
+    const otp = otpValues[bookingId];
+    if (!otp || otp.length !== 6) {
+      addToast("Please enter a valid 6-digit OTP", "error");
+      return;
+    }
+    setActionLoading(prev => ({ ...prev, [`verify_${bookingId}`]: true }));
+    try {
+      await verifyOTP(bookingId, otp);
+      addToast("OTP verified! Job completed successfully. ✅", "success");
+      setOtpValues(prev => {
+        const next = { ...prev };
+        delete next[bookingId];
+        return next;
+      });
+      fetchBookings();
+    } catch (err) {
+      addToast(err.response?.data?.message || err.message || "Failed to verify OTP", "error");
+    } finally {
+      setActionLoading(prev => ({ ...prev, [`verify_${bookingId}`]: false }));
     }
   };
 
@@ -238,9 +270,10 @@ function WorkerDashboard() {
                       b.status === "accepted" ? "bg-green-100 text-green-700 border border-green-200" :
                       b.status === "rejected" ? "bg-red-100 text-red-700 border border-red-200" :
                       b.status === "completed" ? "bg-blue-100 text-blue-700 border border-blue-200" :
+                      b.status === "waiting_for_otp" ? "bg-amber-100 text-amber-700 border border-amber-200" :
                       "bg-slate-100 text-slate-700 border border-slate-200"
                     }`}>
-                      {b.status}
+                      {b.status === "waiting_for_otp" ? "waiting for otp" : b.status}
                     </span>
                   </div>
                 </div>
@@ -264,34 +297,92 @@ function WorkerDashboard() {
                   <div className="flex gap-3">
                     <button
                       onClick={() => handleAcceptBooking(b._id)}
-                      className="flex-1 py-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition-all hover:scale-[1.02]"
+                      disabled={actionLoading[`accept_${b._id}`]}
+                      className="flex-1 py-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition-all hover:scale-[1.02] disabled:opacity-60 disabled:hover:scale-100"
                     >
-                      <CheckCircle size={18} /> Accept
+                      {actionLoading[`accept_${b._id}`] ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle size={18} />}
+                      Accept
                     </button>
                     <button
                       onClick={() => handleRejectBooking(b._id)}
-                      className="flex-1 py-3 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-rose-600 hover:text-white hover:border-rose-600 transition-all hover:scale-[1.02]"
+                      disabled={actionLoading[`reject_${b._id}`]}
+                      className="flex-1 py-3 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-rose-600 hover:text-white hover:border-rose-600 transition-all hover:scale-[1.02] disabled:opacity-60 disabled:hover:scale-100"
                     >
-                      <XCircle size={18} /> Reject
+                      {actionLoading[`reject_${b._id}`] ? <Loader2 size={18} className="animate-spin" /> : <XCircle size={18} />}
+                      Reject
                     </button>
                   </div>
                 )}
 
                 {b.status === "accepted" && (
                   <div>
-                    {isBookingCompleted(b.date, b.time) && (
-                      <div className="mb-4 p-3 bg-amber-50/50 border border-amber-200/50 rounded-xl text-center">
-                        <p className="text-sm font-bold text-amber-800">
-                          Time has passed. Mark as completed?
-                        </p>
+                    {isBookingCompleted(b.date, b.time) ? (
+                      <div className="mb-3 px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl text-center">
+                        <p className="text-sm font-bold text-amber-800">⏰ Job time has passed — generate OTP!</p>
+                      </div>
+                    ) : (
+                      <div className="mb-3 px-4 py-2 bg-blue-50 border border-blue-100 rounded-xl text-center">
+                        <p className="text-sm font-semibold text-blue-700">🗓️ Scheduled: {b.date} at {b.time}</p>
                       </div>
                     )}
                     <button
-                      onClick={() => handleCompleteBooking(b._id)}
-                      className="w-full py-3.5 bg-slate-900 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-slate-800 transition-all hover:scale-[1.02] shadow-lg shadow-slate-900/20"
+                      onClick={() => handleGenerateOTP(b._id)}
+                      disabled={actionLoading[`generate_${b._id}`]}
+                      className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-green-500 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:from-emerald-700 hover:to-green-600 transition-all hover:scale-[1.02] shadow-lg shadow-emerald-900/20 disabled:opacity-60 disabled:hover:scale-100"
                     >
-                      <CheckCircle size={18} /> Complete Job
+                      {actionLoading[`generate_${b._id}`] ? (
+                        <><Loader2 size={18} className="animate-spin" /> Generating...</>
+                      ) : (
+                        <><CheckCircle size={18} /> Generate OTP</>
+                      )}
                     </button>
+                  </div>
+                )}
+
+                {b.status === "waiting_for_otp" && (
+                  <div className="space-y-3">
+                    <div className="px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl text-center">
+                      <p className="text-sm font-bold text-amber-800">🔐 Waiting for customer OTP</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        maxLength="6"
+                        placeholder="Enter 6-digit OTP"
+                        value={otpValues[b._id] || ""}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/\D/g, "");
+                          setOtpValues(prev => ({ ...prev, [b._id]: val }));
+                        }}
+                        className="flex-1 px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-center font-bold text-lg tracking-widest bg-slate-50 focus:bg-white text-slate-800"
+                      />
+                      <button
+                        onClick={() => handleVerifyOTP(b._id)}
+                        disabled={actionLoading[`verify_${b._id}`] || (otpValues[b._id] || "").length !== 6}
+                        className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center gap-2 transition-all hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100 shadow-md shadow-emerald-900/10 shrink-0"
+                      >
+                        {actionLoading[`verify_${b._id}`] ? (
+                          <Loader2 size={18} className="animate-spin" />
+                        ) : (
+                          "Verify OTP"
+                        )}
+                      </button>
+                    </div>
+                    <div className="text-center">
+                      <button
+                        onClick={() => handleGenerateOTP(b._id)}
+                        disabled={actionLoading[`generate_${b._id}`]}
+                        className="text-xs text-slate-400 hover:text-slate-600 font-bold underline"
+                      >
+                        Resend/Regenerate OTP
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {b.status === "completed" && (
+                  <div className="flex items-center gap-2 justify-center py-3 bg-blue-50 text-blue-700 border border-blue-100 rounded-xl font-bold">
+                    <Star size={16} className="fill-blue-500 text-blue-500" /> Job Completed — Awaiting Review
                   </div>
                 )}
               </div>

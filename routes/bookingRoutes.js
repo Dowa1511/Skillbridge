@@ -9,6 +9,8 @@ const {
   updateBookingStatus,
   getCustomerBookings,
   cancelBooking,
+  generateOTP,
+  verifyOTP,
 } = require("../controllers/bookingController");
 
 // ===============================
@@ -46,6 +48,20 @@ router.put(
   protect,
   authorize("worker"),
   updateBookingStatus
+);
+
+router.post(
+  "/generate-otp",
+  protect,
+  authorize("worker"),
+  generateOTP
+);
+
+router.post(
+  "/verify-otp",
+  protect,
+  authorize("worker"),
+  verifyOTP
 );
 
 // Convenience endpoints for mobile/web clients

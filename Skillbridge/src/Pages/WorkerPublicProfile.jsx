@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Calendar as CalendarIcon, MapPin, Clock, AlignLeft } from "lucide-react";
+import { X, Calendar as CalendarIcon, MapPin, Clock, AlignLeft, Star } from "lucide-react";
 import { useToast } from "../components/ToastContext";
+import { bookWorker } from "../services/bookingService";
+import { getWorkerReviews } from "../services/reviewService";
+import api from "../services/api";
 
 function WorkerPublicProfile() {
   const { workerId } = useParams();
@@ -29,13 +32,7 @@ function WorkerPublicProfile() {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const res = await fetch(
-          `http://localhost:5000/api/worker/public/${workerId}`
-        );
-
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message);
-
+        const { data } = await api.get(`/api/worker/public/${workerId}`);
         setWorker(data.worker);
       } catch (err) {
         console.error(err);
@@ -51,13 +48,7 @@ function WorkerPublicProfile() {
   useEffect(() => {
     const fetchReviews = async () => {
       try {
-        const res = await fetch(
-          `http://localhost:5000/api/reviews/worker/${workerId}`
-        );
-
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message);
-
+        const { data } = await getWorkerReviews(workerId);
         setReviews(data.reviews);
       } catch (err) {
         console.error(err);
@@ -82,23 +73,13 @@ function WorkerPublicProfile() {
     setBookingLoading(true);
 
     try {
-      const res = await fetch("http://localhost:5000/api/bookings", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          workerId,
-          date: bookingForm.date,
-          time: bookingForm.time,
-          address: bookingForm.address,
-          description: bookingForm.description,
-        }),
+      await bookWorker({
+        workerId,
+        date: bookingForm.date,
+        time: bookingForm.time,
+        address: bookingForm.address,
+        description: bookingForm.description,
       });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message);
 
       addToast("Booking created successfully! ✅", "success");
       setIsBookingModalOpen(false);

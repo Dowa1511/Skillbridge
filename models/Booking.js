@@ -58,8 +58,23 @@ const BookingSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["pending", "accepted", "rejected", "completed", "cancelled"],
+      enum: ["pending", "accepted", "rejected", "completed", "cancelled", "waiting_for_otp"],
       default: "pending",
+    },
+
+    completionOTP: {
+      type: String,
+      default: null,
+    },
+
+    otpVerified: {
+      type: Boolean,
+      default: false,
+    },
+
+    otpGeneratedAt: {
+      type: Date,
+      default: null,
     },
   },
   { timestamps: true }

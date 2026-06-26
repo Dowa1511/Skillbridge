@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { LoadingPage } from './Loading';
+import api from '../services/api';
 
 const ProtectedRoute = ({ children, requiredRole }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(null);
@@ -18,25 +19,19 @@ const ProtectedRoute = ({ children, requiredRole }) => {
       }
 
       try {
-        // Verify token with backend
-        const res = await fetch('http://localhost:5000/api/auth/verify', {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
+        const response = await api.get('/api/auth/verify');
+        const verifiedUser = response.data?.data?.user;
+        const userData = verifiedUser || (storedUser ? JSON.parse(storedUser) : null);
 
-        if (res.ok) {
-          const userData = storedUser ? JSON.parse(storedUser) : null;
-          setUser(userData);
-          setIsAuthenticated(true);
-        } else {
-          // Token invalid, clear storage
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          setIsAuthenticated(false);
+        if (verifiedUser) {
+          localStorage.setItem('user', JSON.stringify(verifiedUser));
         }
+
+        setUser(userData);
+        setIsAuthenticated(true);
       } catch (error) {
-        console.error('Auth verification failed:', error);
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
         setIsAuthenticated(false);
       }
     };

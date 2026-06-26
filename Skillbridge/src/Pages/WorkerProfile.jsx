@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import api from "../services/api";
 
 function WorkerProfile() {
   const token = localStorage.getItem("token");
@@ -24,26 +25,9 @@ function WorkerProfile() {
 
     const fetchWorkerProfile = async () => {
       try {
-        const res = await fetch(
-          "http://localhost:5000/api/worker/me",
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
+        const { data } = await api.get("/api/worker/me");
 
-        const contentType = res.headers.get("content-type");
-
-        if (!contentType || !contentType.includes("application/json")) {
-          // Backend sent HTML (error page)
-          await res.text();
-          return;
-        }
-
-        const data = await res.json();
-
-        if (res.ok && data.worker) {
+        if (data.worker) {
           setFormData({
             profession: data.worker.profession || "",
             experience: data.worker.experience ?? "",
@@ -54,7 +38,7 @@ function WorkerProfile() {
           });
         }
       } catch (err) {
-        console.error("Fetch worker failed:", err);
+        console.error("Fetch worker failed:", err.response?.data?.message || err.message);
       }
     };
 
@@ -87,35 +71,16 @@ function WorkerProfile() {
     }
 
     try {
-      const res = await fetch(
-        "http://localhost:5000/api/worker/me",
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            profession: formData.profession,
-            experience: Number(formData.experience),
-            hourlyRate: Number(formData.hourlyRate),
-            city: formData.city,
-            area: formData.area,
-            availability: formData.availability,
-          }),
-        }
-      );
+      const { data } = await api.put("/api/worker/me", {
+        profession: formData.profession,
+        experience: Number(formData.experience),
+        hourlyRate: Number(formData.hourlyRate),
+        city: formData.city,
+        area: formData.area,
+        availability: formData.availability,
+      });
 
-      const contentType = res.headers.get("content-type");
-
-      if (!contentType || !contentType.includes("application/json")) {
-        const text = await res.text();
-        throw new Error(text || "Server error");
-      }
-
-      const data = await res.json();
-
-      if (!res.ok) {
+      if (!data.success) {
         throw new Error(data.message || "Profile update failed");
       }
 
