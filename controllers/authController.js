@@ -118,10 +118,6 @@ exports.signup = catchAsync(async (req, res, next) => {
     await Customer.create({
       name,
       phone: normalizedPhone,
-      location: {
-        type: "Point",
-        coordinates: [73.8567, 18.5204], // Default Pune coordinate
-      },
     });
   }
 

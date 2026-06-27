@@ -160,6 +160,17 @@ exports.handleIncomingMessage = async (req, res) => {
       return;
     }
 
+    // ----- UPDATE LOCATION COMMAND -----
+    if (lowerText === "update location" && user.role === "customer") {
+      session.stage = "WAITING_LOCATION";
+      await session.save();
+      await send(
+        normalizedTo,
+        "📍 Please share your current location using WhatsApp.\n\nTap:\nAttach → Location → Send Current Location."
+      );
+      return;
+    }
+
     // ----- FLOW INITIALIZATION -----
     if (lowerText === "hi" || lowerText === "hello") {
       if (user.role === "customer") {
@@ -168,7 +179,7 @@ exports.handleIncomingMessage = async (req, res) => {
         session.lastWorkerResults = [];
         session.currentBookingId = null;
         await session.save();
-        await send(normalizedTo, "What service do you need?\n\nPlumber\nElectrician\nCarpenter\nMechanic");
+        await send(normalizedTo, "What service do you need?\n\nPlumber\nElectrician\nCarpenter\nMechanic\nOther");
       } else {
         await send(normalizedTo, "Welcome back! Use your SkillBridge dashboard to manage bookings.");
       }
@@ -179,8 +190,16 @@ exports.handleIncomingMessage = async (req, res) => {
     if (session.stage === "WAITING_SERVICE") {
       const skill = lowerText;
       const allowedSkills = ["plumber", "electrician", "carpenter", "mechanic"];
+      
+      if (skill === "other") {
+        session.stage = "WAITING_CUSTOM_SERVICE";
+        await session.save();
+        await send(normalizedTo, "Type the service plz");
+        return;
+      }
+
       if (!allowedSkills.includes(skill)) {
-        await send(normalizedTo, "Please choose one service from the list:\n\nPlumber\nElectrician\nCarpenter\nMechanic");
+        await send(normalizedTo, "Please choose one service from the list:\n\nPlumber\nElectrician\nCarpenter\nMechanic\nOther");
         return;
       }
 
@@ -188,10 +207,55 @@ exports.handleIncomingMessage = async (req, res) => {
       await session.save();
 
       const customer = await Customer.findOne({ phone: from });
-      if (!customer || !customer.location || !Array.isArray(customer.location.coordinates) || customer.location.coordinates.length !== 2) {
+      const hasCoords = customer &&
+        customer.location &&
+        Array.isArray(customer.location.coordinates) &&
+        customer.location.coordinates.length === 2 &&
+        customer.location.coordinates[0] !== 0 &&
+        customer.location.coordinates[1] !== 0 &&
+        !(customer.location.coordinates[0] === 73.8567 && customer.location.coordinates[1] === 18.5204);
+
+      if (!hasCoords) {
         session.stage = "WAITING_LOCATION";
         await session.save();
-        await send(normalizedTo, "Please share your current WhatsApp location 📍");
+        await send(
+          normalizedTo,
+          "📍 Please share your current location using WhatsApp.\n\nTap:\nAttach → Location → Send Current Location."
+        );
+        return;
+      }
+
+      await searchAndSendWorkers(session, customer.location.coordinates, skill, normalizedTo);
+      return;
+    }
+
+    // ----- STAGE: WAITING_CUSTOM_SERVICE -----
+    if (session.stage === "WAITING_CUSTOM_SERVICE") {
+      const skill = lowerText.trim();
+      if (!skill) {
+        await send(normalizedTo, "Type the service plz");
+        return;
+      }
+
+      session.selectedSkill = skill;
+      await session.save();
+
+      const customer = await Customer.findOne({ phone: from });
+      const hasCoords = customer &&
+        customer.location &&
+        Array.isArray(customer.location.coordinates) &&
+        customer.location.coordinates.length === 2 &&
+        customer.location.coordinates[0] !== 0 &&
+        customer.location.coordinates[1] !== 0 &&
+        !(customer.location.coordinates[0] === 73.8567 && customer.location.coordinates[1] === 18.5204);
+
+      if (!hasCoords) {
+        session.stage = "WAITING_LOCATION";
+        await session.save();
+        await send(
+          normalizedTo,
+          "📍 Please share your current location using WhatsApp.\n\nTap:\nAttach → Location → Send Current Location."
+        );
         return;
       }
 
@@ -218,9 +282,18 @@ exports.handleIncomingMessage = async (req, res) => {
           );
         }
 
-        await searchAndSendWorkers(session, coords, session.selectedSkill, normalizedTo);
+        if (session.selectedSkill) {
+          await searchAndSendWorkers(session, coords, session.selectedSkill, normalizedTo);
+        } else {
+          session.stage = "idle";
+          await session.save();
+          await send(normalizedTo, "🟢 Location updated successfully!");
+        }
       } else {
-        await send(normalizedTo, "❌ Please use the WhatsApp attachment menu to share your location 📍");
+        await send(
+          normalizedTo,
+          "📍 Please share your current location using WhatsApp.\n\nTap:\nAttach → Location → Send Current Location."
+        );
       }
       return;
     }
@@ -395,14 +468,44 @@ async function searchAndSendWorkers(session, coords, skill, from) {
   console.log("Searching near:", coords);
   console.log("Skill:", skill);
 
-  const workers = await Worker.find({
-    profession: { $regex: new RegExp(`^${skill}$`, "i") },
-    availability: true,
-    isProfileComplete: true,
-  })
-    .populate("user")
-    .sort({ averageRating: -1 })
-    .limit(5);
+  const workers = await Worker.aggregate([
+    {
+      $geoNear: {
+        near: {
+          type: "Point",
+          coordinates: [Number(coords[0]), Number(coords[1])],
+        },
+        distanceField: "distance",
+        maxDistance: 5000, // 5 km
+        query: {
+          profession: { $regex: new RegExp(`^${skill}$`, "i") },
+          availability: true,
+          isProfileComplete: true,
+        },
+        spherical: true,
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "user",
+        foreignField: "_id",
+        as: "user",
+      },
+    },
+    {
+      $unwind: "$user",
+    },
+    {
+      $sort: {
+        averageRating: -1,
+        distance: 1,
+      },
+    },
+    {
+      $limit: 5,
+    },
+  ]);
 
   console.log("Workers:", workers);
 

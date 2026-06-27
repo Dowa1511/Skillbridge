@@ -19,7 +19,6 @@ const customerSchema = new mongoose.Schema(
       },
       coordinates: {
         type: [Number], // [lng, lat]
-        required: true,
       },
     },
   },

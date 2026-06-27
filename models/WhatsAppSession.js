@@ -10,6 +10,7 @@ const whatsappSessionSchema = new mongoose.Schema(
       enum: [
         "idle",
         "WAITING_SERVICE",
+        "WAITING_CUSTOM_SERVICE",
         "WAITING_LOCATION",
         "SHOWING_WORKERS",
         "WAITING_WORKER_RESPONSE",
